@@ -131,6 +131,9 @@ func getKubernetesClient(kubeConfig string) (*kubernetes.Clientset, error) {
 func fetchExternalIPs(clientset *kubernetes.Clientset) ([]IPAddress, error) {
 	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
+		if strings.Contains(err.Error(), "forbidden") {
+			return nil, fmt.Errorf("failed to list nodes due to insufficient permissions: %w\n\nThis error indicates the service account lacks proper RBAC permissions.\nPlease ensure the service account has the following permissions:\n- apiGroups: [\"\"]\n  resources: [\"nodes\"]\n  verbs: [\"get\", \"list\", \"watch\"]\n\nSee k8s-deployment.yaml for the complete RBAC configuration.", err)
+		}
 		return nil, fmt.Errorf("failed to list nodes: %w", err)
 	}
 
@@ -349,6 +352,15 @@ func main() {
 		log.Fatalf("Failed to create Kubernetes client: %v", err)
 	}
 
+	// Test Kubernetes permissions before starting
+	ctx := context.Background()
+	log.Println("Verifying Kubernetes permissions...")
+	_, err = clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{Limit: 1})
+	if err != nil {
+		log.Fatalf("Failed to access Kubernetes nodes - check service account permissions: %v\n\nRequired RBAC permissions:\n- apiGroups: [\"\"]\n  resources: [\"nodes\"]\n  verbs: [\"get\", \"list\", \"watch\"]\n\nSee k8s-deployment.yaml for proper RBAC configuration.", err)
+	}
+	log.Println("Kubernetes permissions verified successfully")
+
 	// Initialize PowerDNS client with proper options
 	pdns := powerdns.New(
 		config.PowerDNSURL,
@@ -360,7 +372,6 @@ func main() {
 	)
 
 	// Test PowerDNS connection
-	ctx := context.Background()
 	servers, err := pdns.Servers.List(ctx)
 	if err != nil {
 		log.Fatalf("Failed to connect to PowerDNS API: %v", err)
@@ -375,9 +386,11 @@ func main() {
 	log.Printf("Successfully verified DNS zone: %s", config.DNSZone)
 
 	// Perform initial sync
+	log.Println("Performing initial DNS sync...")
 	if err := syncDNSRecords(ctx, clientset, pdns, config); err != nil {
-		log.Printf("Initial sync failed: %v", err)
+		log.Fatalf("Initial sync failed: %v", err)
 	}
+	log.Println("Initial sync completed successfully")
 
 	// Set up periodic sync
 	ticker := time.NewTicker(config.SyncInterval)

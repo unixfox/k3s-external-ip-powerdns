@@ -166,29 +166,34 @@ export SYNC_INTERVAL="30s"
 
 ## How It Works
 
-1. **Node Discovery**: The application connects to the Kubernetes API and lists all nodes in the cluster.
+1. **Startup Validation**: The application performs startup checks to verify:
+   - Kubernetes API connectivity and proper RBAC permissions
+   - PowerDNS API connectivity and zone access
+   - Configuration validity
+   
+   **Note**: The application will fail fast with clear error messages if any startup checks fail, preventing misconfigured deployments from running indefinitely.
 
-2. **IP Extraction**: For each node, it checks for the `k3s.io/external-ip` annotation and parses the comma-separated IP addresses.
+2. **Node Discovery**: The application connects to the Kubernetes API and lists all nodes in the cluster.
 
-3. **IP Classification**: Each IP address is classified as IPv4 or IPv6 using Go's `net.ParseIP()` function.
+3. **IP Extraction**: For each node, it checks for the `k3s.io/external-ip` annotation and parses the comma-separated IP addresses.
 
-4. **Deduplication**: IP addresses are deduplicated across all nodes to avoid creating duplicate DNS records.
+4. **IP Classification**: Each IP address is classified as IPv4 or IPv6 using Go's `net.ParseIP()` function.
 
-5. **DNS Record Creation**: 
+5. **Deduplication**: IP addresses are deduplicated across all nodes to avoid creating duplicate DNS records.
+
+6. **DNS Record Creation**: 
    - IPv4 addresses are used to create/update A records
    - IPv6 addresses are used to create/update AAAA records
    - If no IPs of a particular type are found, existing records of that type are deleted
 
-6. **DNS Record Updates**: 
+7. **DNS Record Updates**: 
    - IPv4 addresses are used to create/update A records via `pdns.Records.Change()`
    - IPv6 addresses are used to create/update AAAA records via `pdns.Records.Change()`
    - If no IPs of a particular type are found, existing records are deleted via `pdns.Records.Delete()`
 
-7. **PowerDNS API**: The application uses the official `go-powerdns` library to interact with PowerDNS's REST API, providing robust error handling and type safety.
+8. **PowerDNS API**: The application uses the official `go-powerdns` library to interact with PowerDNS's REST API, providing robust error handling and type safety.
 
-8. **Periodic Sync**: The process repeats at the configured interval to ensure DNS records stay in sync with the cluster state.
-
-7. **Periodic Sync**: The process repeats at the configured interval to ensure DNS records stay in sync with the cluster state.
+9. **Periodic Sync**: The process repeats at the configured interval to ensure DNS records stay in sync with the cluster state.
 
 ## PowerDNS API Integration
 
@@ -298,18 +303,33 @@ The application handles various error scenarios:
 
 ### Common Issues
 
-1. **No external IPs found**:
+1. **Service Account Permissions Error**:
+   ```
+   Failed to access Kubernetes nodes - check service account permissions: nodes is forbidden: 
+   User "system:serviceaccount:default:default" cannot list resource "nodes" in API group "" at the cluster scope
+   ```
+   
+   **Solution**: The application requires proper RBAC permissions to access Kubernetes nodes. Apply the complete RBAC configuration:
+   ```bash
+   kubectl apply -f k8s-deployment.yaml
+   ```
+   
+   The required permissions are:
+   ```yaml
+   rules:
+   - apiGroups: [""]
+     resources: ["nodes"]
+     verbs: ["get", "list", "watch"]
+   ```
+
+2. **No external IPs found**:
    - Check if nodes have the `k3s.io/external-ip` annotation
    - Verify the annotation value format
 
-2. **PowerDNS API errors**:
+3. **PowerDNS API errors**:
    - Verify PowerDNS URL and API key
    - Check PowerDNS API is enabled and accessible
    - Ensure the DNS zone exists in PowerDNS
-
-3. **Kubernetes permissions**:
-   - Verify the ServiceAccount has proper RBAC permissions
-   - Check if the application can connect to the Kubernetes API
 
 4. **DNS records not updating**:
    - Check PowerDNS logs for API requests

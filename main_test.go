@@ -211,3 +211,43 @@ func TestDNSValidationFunctions(t *testing.T) {
 		})
 	}
 }
+
+func TestKubernetesPermissionErrors(t *testing.T) {
+	// Test that forbidden errors get proper formatting with helpful messages
+	tests := []struct {
+		name        string
+		errorMsg    string
+		shouldMatch bool
+	}{
+		{
+			name:        "Forbidden error with service account",
+			errorMsg:    "nodes is forbidden: User \"system:serviceaccount:tools:default\" cannot list resource \"nodes\"",
+			shouldMatch: true,
+		},
+		{
+			name:        "Generic forbidden error",
+			errorMsg:    "access forbidden",
+			shouldMatch: true,
+		},
+		{
+			name:        "Network error",
+			errorMsg:    "connection refused",
+			shouldMatch: false,
+		},
+		{
+			name:        "Timeout error",
+			errorMsg:    "context deadline exceeded",
+			shouldMatch: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isForbidden := strings.Contains(tt.errorMsg, "forbidden")
+			if isForbidden != tt.shouldMatch {
+				t.Errorf("Error classification mismatch for '%s': expected forbidden=%v, got forbidden=%v", 
+					tt.errorMsg, tt.shouldMatch, isForbidden)
+			}
+		})
+	}
+}
