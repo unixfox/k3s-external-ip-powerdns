@@ -251,3 +251,44 @@ func TestKubernetesPermissionErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestNodeSelectorConfiguration(t *testing.T) {
+	tests := []struct {
+		name         string
+		nodeSelector string
+		expected     string
+	}{
+		{
+			name:         "Single label",
+			nodeSelector: "dns-sync=enabled",
+			expected:     "dns-sync=enabled",
+		},
+		{
+			name:         "Multiple labels",
+			nodeSelector: "role=worker,environment=production",
+			expected:     "role=worker,environment=production",
+		},
+		{
+			name:         "Architecture selector",
+			nodeSelector: "k8s.io/arch=amd64",
+			expected:     "k8s.io/arch=amd64",
+		},
+		{
+			name:         "Empty selector",
+			nodeSelector: "",
+			expected:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &Config{
+				NodeSelector: tt.nodeSelector,
+			}
+			
+			if config.NodeSelector != tt.expected {
+				t.Errorf("NodeSelector = %s, want %s", config.NodeSelector, tt.expected)
+			}
+		})
+	}
+}

@@ -40,6 +40,7 @@ type Config struct {
 	SyncInterval    time.Duration
 	KubeConfig      string
 	TTL             int
+	NodeSelector    string // Label selector for nodes to include in DNS updates
 }
 
 type IPAddress struct {
@@ -128,8 +129,16 @@ func getKubernetesClient(kubeConfig string) (*kubernetes.Clientset, error) {
 	return clientset, nil
 }
 
-func fetchExternalIPs(clientset *kubernetes.Clientset) ([]IPAddress, error) {
-	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+func fetchExternalIPs(clientset *kubernetes.Clientset, config *Config) ([]IPAddress, error) {
+	listOptions := metav1.ListOptions{}
+	
+	// Apply label selector if configured
+	if config.NodeSelector != "" {
+		listOptions.LabelSelector = config.NodeSelector
+		log.Printf("Using node selector: %s", config.NodeSelector)
+	}
+	
+	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), listOptions)
 	if err != nil {
 		if strings.Contains(err.Error(), "forbidden") {
 			return nil, fmt.Errorf("failed to list nodes due to insufficient permissions: %w\n\nThis error indicates the service account lacks proper RBAC permissions.\nPlease ensure the service account has the following permissions:\n- apiGroups: [\"\"]\n  resources: [\"nodes\"]\n  verbs: [\"get\", \"list\", \"watch\"]\n\nSee k8s-deployment.yaml for the complete RBAC configuration.", err)
@@ -137,6 +146,8 @@ func fetchExternalIPs(clientset *kubernetes.Clientset) ([]IPAddress, error) {
 		return nil, fmt.Errorf("failed to list nodes: %w", err)
 	}
 
+	log.Printf("Found %d nodes matching criteria", len(nodes.Items))
+	
 	var allIPs []IPAddress
 	seenIPs := make(map[string]bool)
 
@@ -147,7 +158,7 @@ func fetchExternalIPs(clientset *kubernetes.Clientset) ([]IPAddress, error) {
 			continue
 		}
 
-		log.Printf("Found external IPs for node %s: %s", node.Name, externalIPAnnotation)
+		log.Printf("Processing node %s with external IPs: %s", node.Name, externalIPAnnotation)
 
 		ips, err := parseIPAddresses(externalIPAnnotation)
 		if err != nil {
@@ -293,6 +304,7 @@ func loadConfig() (*Config, error) {
 	}
 
 	config.KubeConfig = os.Getenv("KUBECONFIG")
+	config.NodeSelector = os.Getenv("NODE_SELECTOR")
 
 	return config, nil
 }
@@ -300,7 +312,7 @@ func loadConfig() (*Config, error) {
 func syncDNSRecords(ctx context.Context, clientset *kubernetes.Clientset, pdns *powerdns.Client, config *Config) error {
 	log.Println("Fetching external IP addresses from Kubernetes nodes...")
 
-	ips, err := fetchExternalIPs(clientset)
+	ips, err := fetchExternalIPs(clientset, config)
 	if err != nil {
 		return fmt.Errorf("failed to fetch external IPs: %w", err)
 	}
@@ -346,6 +358,11 @@ func main() {
 	log.Printf("  DNS Record: %s", config.DNSRecord)
 	log.Printf("  DNS TTL: %d seconds", config.TTL)
 	log.Printf("  Sync Interval: %v", config.SyncInterval)
+	if config.NodeSelector != "" {
+		log.Printf("  Node Selector: %s", config.NodeSelector)
+	} else {
+		log.Printf("  Node Selector: <all nodes>")
+	}
 
 	clientset, err := getKubernetesClient(config.KubeConfig)
 	if err != nil {

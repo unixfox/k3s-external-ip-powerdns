@@ -38,6 +38,39 @@ The application is configured via environment variables:
 | `DNS_TTL` | No | DNS record TTL (default: 300s) | `300s`, `5m` |
 | `SYNC_INTERVAL` | No | Sync interval (default: 30s) | `60s`, `5m`, `1h` |
 | `KUBECONFIG` | No | Path to kubeconfig file | `/path/to/kubeconfig` |
+| `NODE_SELECTOR` | No | Label selector for nodes to include | `dns-sync=enabled`, `role=worker` |
+
+## Node Selection
+
+By default, the application processes all nodes in the cluster. You can restrict which nodes are included in DNS updates by using the `NODE_SELECTOR` environment variable with Kubernetes label selectors.
+
+### Examples
+
+```bash
+# Only include nodes with specific label
+NODE_SELECTOR="dns-sync=enabled"
+
+# Multiple label requirements
+NODE_SELECTOR="role=worker,environment=production"
+
+# Architecture-specific nodes
+NODE_SELECTOR="k8s.io/arch=amd64"
+
+# Leave empty to include all nodes (default)
+NODE_SELECTOR=""
+```
+
+### Labeling Nodes
+
+To include a node in DNS updates when using a node selector:
+
+```bash
+# Add the required label to your node
+kubectl label node <node-name> dns-sync=enabled
+
+# Verify the label
+kubectl get nodes -l dns-sync=enabled
+```
 
 ## Node Annotation Format
 
@@ -48,6 +81,8 @@ apiVersion: v1
 kind: Node
 metadata:
   name: node1
+  labels:
+    dns-sync: enabled  # Required if NODE_SELECTOR is configured
   annotations:
     k3s.io/external-ip: "152.67.73.95,2603:c022:5:1e00:a452:9f75:7f83:3a88"
 ```
@@ -322,11 +357,26 @@ The application handles various error scenarios:
      verbs: ["get", "list", "watch"]
    ```
 
-2. **No external IPs found**:
-   - Check if nodes have the `k3s.io/external-ip` annotation
-   - Verify the annotation value format
+2. **No external IPs found when using node selector**:
+   - Check if nodes have the required labels:
+     ```bash
+     kubectl get nodes -l <your-node-selector>
+     ```
+   - Verify node selector syntax:
+     ```bash
+     kubectl get nodes --selector="dns-sync=enabled"
+     ```
+   - Check application logs for the node selector being used:
+     ```bash
+     kubectl logs deployment/k8s-external-ip-powerdns
+     ```
 
-3. **PowerDNS API errors**:
+3. **Nodes not being processed**:
+   - Check if nodes have the `k3s.io/external-ip` annotation
+   - Verify the node selector includes the intended nodes
+   - Review application logs for node processing details
+
+4. **PowerDNS API errors**:
    - Verify PowerDNS URL and API key
    - Check PowerDNS API is enabled and accessible
    - Ensure the DNS zone exists in PowerDNS
@@ -339,8 +389,12 @@ The application handles various error scenarios:
 ### Debug Commands
 
 ```bash
-# Check node annotations
-kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.k3s\.io/external-ip}{"\n"}{end}'
+# Check node annotations and labels
+kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.k3s\.io/external-ip}{"\t"}{.metadata.labels}{"\n"}{end}'
+
+# Check nodes matching specific selector
+kubectl get nodes -l dns-sync=enabled
+kubectl get nodes --selector="role=worker,environment=production"
 
 # Check application logs
 kubectl logs -f deployment/k8s-external-ip-powerdns

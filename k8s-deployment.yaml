@@ -39,6 +39,10 @@ data:
   DNS_RECORD: "cluster.example.com."
   DNS_TTL: "300s"
   SYNC_INTERVAL: "30s"
+  # Node Selection - only include nodes with this label selector
+  # Examples: "dns-sync=enabled" or "role=worker,environment=production"
+  # Leave empty to include all nodes
+  NODE_SELECTOR: ""
 ---
 apiVersion: v1
 kind: Secret
@@ -46,7 +50,7 @@ metadata:
   name: k8s-external-ip-powerdns-secret
   namespace: default
 type: Opaque
-stringData:
+data:
   # Base64 encoded PowerDNS API key
   # Replace with: echo -n 'your-api-key' | base64
   POWERDNS_API_KEY: eW91ci1hcGkta2V5
@@ -104,6 +108,11 @@ spec:
             configMapKeyRef:
               name: k8s-external-ip-powerdns-config
               key: SYNC_INTERVAL
+        - name: NODE_SELECTOR
+          valueFrom:
+            configMapKeyRef:
+              name: k8s-external-ip-powerdns-config
+              key: NODE_SELECTOR
         - name: POWERDNS_API_KEY
           valueFrom:
             secretKeyRef:
