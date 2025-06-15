@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-external-ip-powerdns
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8s-external-ip-powerdns
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8s-external-ip-powerdns
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: k8s-external-ip-powerdns
+subjects:
+- kind: ServiceAccount
+  name: k8s-external-ip-powerdns
+  namespace: default
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8s-external-ip-powerdns-config
+  namespace: default
+data:
+  # PowerDNS Configuration
+  POWERDNS_URL: "http://powerdns-api:8081"
+  POWERDNS_VHOST: "localhost"
+  DNS_ZONE: "example.com."
+  DNS_RECORD: "cluster.example.com."
+  DNS_TTL: "300s"
+  SYNC_INTERVAL: "30s"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: k8s-external-ip-powerdns-secret
+  namespace: default
+type: Opaque
+data:
+  # Base64 encoded PowerDNS API key
+  # Replace with: echo -n 'your-api-key' | base64
+  POWERDNS_API_KEY: eW91ci1hcGkta2V5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-external-ip-powerdns
+  namespace: default
+  labels:
+    app: k8s-external-ip-powerdns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k8s-external-ip-powerdns
+  template:
+    metadata:
+      labels:
+        app: k8s-external-ip-powerdns
+    spec:
+      serviceAccountName: k8s-external-ip-powerdns
+      containers:
+      - name: k8s-external-ip-powerdns
+        image: k8s-external-ip-powerdns:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: POWERDNS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: k8s-external-ip-powerdns-config
+              key: POWERDNS_URL
+        - name: POWERDNS_VHOST
+          valueFrom:
+            configMapKeyRef:
+              name: k8s-external-ip-powerdns-config
+              key: POWERDNS_VHOST
+        - name: DNS_ZONE
+          valueFrom:
+            configMapKeyRef:
+              name: k8s-external-ip-powerdns-config
+              key: DNS_ZONE
+        - name: DNS_RECORD
+          valueFrom:
+            configMapKeyRef:
+              name: k8s-external-ip-powerdns-config
+              key: DNS_RECORD
+        - name: DNS_TTL
+          valueFrom:
+            configMapKeyRef:
+              name: k8s-external-ip-powerdns-config
+              key: DNS_TTL
+        - name: SYNC_INTERVAL
+          valueFrom:
+            configMapKeyRef:
+              name: k8s-external-ip-powerdns-config
+              key: SYNC_INTERVAL
+        - name: POWERDNS_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: k8s-external-ip-powerdns-secret
+              key: POWERDNS_API_KEY
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
